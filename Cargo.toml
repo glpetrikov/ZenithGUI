@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "zenith-gui-core",
+    "zenith-gui-wgpu",
+    "zenith-gui-widgets",
+]
+resolver = "2"
+
+[workspace.package]
+authors = ["Gleb Petrikov"]
+repository = "https://github.com/glpetrikov/ZenithGUI"
+license = "MIT OR Apache-2.0 OR BlueOak-1.0.0"
+edition = "2024"

@@ -1,0 +1,10 @@
+[package]
+name = "zenith-gui-wgpu"
+version = "0.0.0"
+description = "wgpu renderer backend for Zenith GUI"
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[dependencies]

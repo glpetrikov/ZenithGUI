@@ -1,0 +1,10 @@
+[package]
+name = "zenith-gui-widgets"
+version = "0.0.0"
+description = "Widget library for Zenith GUI"
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[dependencies]
