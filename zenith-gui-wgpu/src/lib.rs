@@ -1,14 +1,21 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! `wgpu` renderer backend for Zenith GUI.
+//!
+//! [`WgpuRenderer`] implements [`zenith_gui_core::render::Renderer`]: it takes
+//! the frame's [`DrawList`] and draws SDF rounded rectangles, anti-aliased
+//! lines/béziers and `glyphon` text, honoring clip regions via scissor rects
+//! (text via per-item bounds).
+//!
+//! Two kinds of target:
+//! - a window surface ([`WgpuRenderer::new`]), presented every frame;
+//! - an offscreen texture ([`WgpuRenderer::new_headless`]), readable with
+//!   [`WgpuRenderer::render_to_rgba`] (tests, screenshots, CI).
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod batch;
+mod renderer;
+pub mod text;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+pub use renderer::{RendererConfig, RendererInitError, WgpuRenderer};
+
+pub mod prelude {
+    pub use crate::{RendererConfig, WgpuRenderer};
 }

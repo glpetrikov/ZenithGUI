@@ -1,10 +1,12 @@
 [package]
 name = "zenith-gui-widgets"
 version = "0.0.0"
-description = "Widget library for Zenith GUI"
+description = "Advanced widgets for Zenith GUI: node editor, slider, checkbox, ..."
 authors.workspace = true
 repository.workspace = true
 license.workspace = true
 edition.workspace = true
 
 [dependencies]
+bevy_ecs.workspace = true
+zenith-gui-core.workspace = true

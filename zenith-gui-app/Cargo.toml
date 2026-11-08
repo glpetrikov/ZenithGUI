@@ -1,0 +1,17 @@
+[package]
+name = "zenith-gui-app"
+version = "0.0.0"
+description = "Windowing glue for Zenith GUI: winit + wgpu app runner (like dear-app)"
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[dependencies]
+bevy_ecs.workspace = true
+zenith-gui-core.workspace = true
+zenith-gui-widgets.workspace = true
+zenith-gui-wgpu.workspace = true
+wgpu.workspace = true
+winit.workspace = true
+png.workspace = true
