@@ -2,14 +2,15 @@
 //!
 //! Two passes per root: `measure` (bottom-up preferred sizes), then `place`
 //! (top-down, distributes free space and writes [`ComputedLayout`]).
-//! This is a skeleton: no wrapping, min/max sizes, or absolute positioning yet.
+//! Children with [`Position::Absolute`] are taken out of the flow and placed
+//! relative to their parent's top-left corner. No wrapping or min/max sizes yet.
 
 use bevy_ecs::prelude::*;
 use std::collections::HashMap;
 
 use crate::geometry::{Rect, Vec2};
 use crate::input::Viewport;
-use crate::node::{ComputedLayout, Node};
+use crate::node::{ClipChildren, ComputedLayout, Node, Visibility};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum Val {
@@ -73,8 +74,18 @@ pub enum AlignItems {
     Stretch,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub enum Position {
+    /// Participates in the parent's flex flow.
+    #[default]
+    Relative,
+    /// Removed from the flow; offset from the parent's top-left (border box).
+    Absolute { left: f32, top: f32 },
+}
+
 #[derive(Component, Debug, Default, Clone, PartialEq)]
 pub struct Style {
+    pub position: Position,
     pub direction: FlexDirection,
     pub width: Val,
     pub height: Val,
@@ -98,9 +109,15 @@ type NodeQuery<'w, 's> = Query<
         &'static Style,
         Option<&'static ContentSize>,
         Option<&'static Children>,
+        &'static Visibility,
+        Has<ClipChildren>,
     ),
     With<Node>,
 >;
+
+fn is_absolute(s: &Style) -> bool {
+    matches!(s.position, Position::Absolute { .. })
+}
 
 fn is_row(s: &Style) -> bool {
     s.direction == FlexDirection::Row
@@ -124,7 +141,7 @@ fn from_axes(main: f32, cross: f32, row: bool) -> Vec2 {
 
 /// Outer size (border box + margin) a node wants, ignoring percentages.
 fn measure(e: Entity, nodes: &NodeQuery, cache: &mut HashMap<Entity, Vec2>) -> Vec2 {
-    let Ok((style, content, children)) = nodes.get(e) else {
+    let Ok((style, content, children, ..)) = nodes.get(e) else {
         return Vec2::ZERO;
     };
     let row = is_row(style);
@@ -132,10 +149,13 @@ fn measure(e: Entity, nodes: &NodeQuery, cache: &mut HashMap<Entity, Vec2>) -> V
     let mut cross = 0.0f32;
     let mut count = 0usize;
     for &child in children.map(|c| &**c).unwrap_or(&[]) {
-        if nodes.get(child).is_err() {
+        let Ok((child_style, ..)) = nodes.get(child) else {
             continue;
-        }
+        };
         let outer = measure(child, nodes, cache);
+        if is_absolute(child_style) {
+            continue; // measured, but not part of the flow
+        }
         main += main_of(outer, row);
         cross = cross.max(cross_of(outer, row));
         count += 1;
@@ -144,7 +164,7 @@ fn measure(e: Entity, nodes: &NodeQuery, cache: &mut HashMap<Entity, Vec2>) -> V
         main += style.gap * (count - 1) as f32;
     }
     let mut inner = from_axes(main, cross, row);
-    if count == 0 {
+    if count == 0 && children.is_none_or(|c| c.is_empty()) {
         inner = content.map_or(Vec2::ZERO, |c| c.0);
     }
     let auto = Vec2::new(
@@ -171,25 +191,51 @@ fn measure(e: Entity, nodes: &NodeQuery, cache: &mut HashMap<Entity, Vec2>) -> V
 struct Placed {
     entity: Entity,
     rect: Rect,
+    clip: Option<Rect>,
+    visible: bool,
+}
+
+#[derive(Clone, Copy)]
+struct Inherited {
+    clip: Option<Rect>,
+    visible: bool,
 }
 
 fn place(
     e: Entity,
     rect: Rect,
+    inherited: Inherited,
     nodes: &NodeQuery,
     cache: &HashMap<Entity, Vec2>,
     out: &mut Vec<Placed>,
 ) {
-    out.push(Placed { entity: e, rect });
-    let Ok((style, _, children)) = nodes.get(e) else {
+    let Ok((style, _, children, visibility, clips)) = nodes.get(e) else {
         return;
     };
-    let kids: Vec<Entity> = children
+    let visible = inherited.visible && *visibility == Visibility::Visible;
+    out.push(Placed {
+        entity: e,
+        rect,
+        clip: inherited.clip,
+        visible,
+    });
+    let child_inherited = Inherited {
+        clip: if clips {
+            Some(inherited.clip.map_or(rect, |c| c.intersect(&rect)))
+        } else {
+            inherited.clip
+        },
+        visible,
+    };
+    let all_kids: Vec<Entity> = children
         .map(|c| c.iter().filter(|k| nodes.get(*k).is_ok()).collect())
         .unwrap_or_default();
-    if kids.is_empty() {
+    if all_kids.is_empty() {
         return;
     }
+    let (abs_kids, kids): (Vec<Entity>, Vec<Entity>) = all_kids
+        .into_iter()
+        .partition(|k| nodes.get(*k).is_ok_and(|n| is_absolute(n.0)));
 
     let row = is_row(style);
     let pad = style.padding;
@@ -200,23 +246,35 @@ fn place(
         (rect.size.y - pad.vertical()).max(0.0),
     );
 
-    // Resolve each child's border-box size (percentages against our content box).
-    let sizes: Vec<(Vec2, &Style)> = kids
-        .iter()
-        .map(|&k| {
-            let (ks, _, _) = nodes.get(k).unwrap();
-            let base = cache.get(&k).copied().unwrap_or(Vec2::ZERO);
-            let w = match ks.width {
-                Val::Percent(p) => inner.size.x * p / 100.0,
-                _ => base.x,
+    // Resolve a child's border-box size (percentages against our content box).
+    let resolve = |k: Entity| -> (Vec2, &Style) {
+        let (ks, ..) = nodes.get(k).unwrap();
+        let base = cache.get(&k).copied().unwrap_or(Vec2::ZERO);
+        let w = match ks.width {
+            Val::Percent(p) => inner.size.x * p / 100.0,
+            _ => base.x,
+        };
+        let h = match ks.height {
+            Val::Percent(p) => inner.size.y * p / 100.0,
+            _ => base.y,
+        };
+        (Vec2::new(w, h), ks)
+    };
+
+    for &k in &abs_kids {
+        let (size, ks) = resolve(k);
+        if let Position::Absolute { left, top } = ks.position {
+            let r = Rect {
+                pos: Vec2::new(rect.pos.x + left, rect.pos.y + top),
+                size,
             };
-            let h = match ks.height {
-                Val::Percent(p) => inner.size.y * p / 100.0,
-                _ => base.y,
-            };
-            (Vec2::new(w, h), ks)
-        })
-        .collect();
+            place(k, r, child_inherited, nodes, cache, out);
+        }
+    }
+    if kids.is_empty() {
+        return;
+    }
+    let sizes: Vec<(Vec2, &Style)> = kids.iter().map(|&k| resolve(k)).collect();
 
     let outer_main = |s: &(Vec2, &Style)| {
         main_of(s.0, row)
@@ -282,7 +340,7 @@ fn place(
             pos: Vec2::new(inner.pos.x + local.x, inner.pos.y + local.y),
             size: from_axes(main, cross, row),
         };
-        place(k, child_rect, nodes, cache, out);
+        place(k, child_rect, child_inherited, nodes, cache, out);
         cursor += main + m_main_end + style.gap + extra_gap;
     }
 }
@@ -298,7 +356,7 @@ pub(crate) fn compute_layout(
     for root in &roots {
         measure(root, &nodes, &mut cache);
         let size = {
-            let (style, _, _) = nodes.get(root).unwrap();
+            let (style, ..) = nodes.get(root).unwrap();
             let base = cache[&root];
             // Roots fill the viewport unless given an explicit size.
             Vec2::new(
@@ -320,6 +378,10 @@ pub(crate) fn compute_layout(
                 pos: Vec2::ZERO,
                 size,
             },
+            Inherited {
+                clip: None,
+                visible: true,
+            },
             &nodes,
             &cache,
             &mut placed,
@@ -331,6 +393,8 @@ pub(crate) fn compute_layout(
             layout.set_if_neq(ComputedLayout {
                 rect: p.rect,
                 order: order as u32,
+                clip: p.clip,
+                visible: p.visible,
             });
         }
     }

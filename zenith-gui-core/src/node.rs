@@ -19,15 +19,38 @@ pub struct ComputedLayout {
     pub rect: Rect,
     /// Paint/hit-test order: higher is drawn later (on top).
     pub order: u32,
+    /// Intersection of all ancestor [`ClipChildren`] rects, if any.
+    pub clip: Option<Rect>,
+    /// `false` if this node or any ancestor is [`Visibility::Hidden`].
+    pub visible: bool,
 }
 
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Visibility {
     #[default]
     Visible,
-    /// Not drawn and not hit-testable, but still takes part in layout.
+    /// Not drawn and not hit-testable, together with its whole subtree, but
+    /// still takes part in layout.
     Hidden,
 }
 
+/// Children are clipped to this node's rect (drawing and hit-testing).
+#[derive(Component, Debug, Default, Clone, Copy)]
+pub struct ClipChildren;
+
+/// Pointer events skip this node and hit whatever is below it (labels,
+/// decorations).
+#[derive(Component, Debug, Default, Clone, Copy)]
+pub struct PassThrough;
+
 #[derive(Component, Debug, Clone, Copy, PartialEq, Default)]
 pub struct BackgroundColor(pub Color);
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Default)]
+pub struct CornerRadius(pub f32);
+
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct Border {
+    pub width: f32,
+    pub color: Color,
+}

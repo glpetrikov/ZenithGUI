@@ -11,7 +11,7 @@ use bevy_ecs::{
     system::{IntoObserverSystem, ScheduleSystem},
 };
 
-use crate::{input, interaction, layout};
+use crate::{input, interaction, layout, render, text, widgets};
 
 #[derive(ScheduleLabel, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ZenithSchedule {
@@ -32,7 +32,9 @@ pub enum UiSet {
     Update,
     /// Computes [`ComputedLayout`](crate::node::ComputedLayout).
     Layout,
-    /// Renderer extracts what to draw from the finished layout.
+    /// Widgets write [`CustomDraw`](crate::render::CustomDraw) from the finished layout.
+    PreRender,
+    /// Extracts the [`DrawList`](crate::render::DrawList) from the finished layout.
     Render,
     /// End-of-frame bookkeeping (clears per-frame input edges).
     Cleanup,
@@ -66,6 +68,7 @@ impl ZenithApp {
                 UiSet::Interaction,
                 UiSet::Update,
                 UiSet::Layout,
+                UiSet::PreRender,
                 UiSet::Render,
                 UiSet::Cleanup,
             )
@@ -128,7 +131,7 @@ impl Default for ZenithApp {
     }
 }
 
-/// Registers resources and the layout / interaction systems.
+/// Registers resources and the text, layout, interaction and draw-list systems.
 pub struct CorePlugin;
 
 impl Plugin for CorePlugin {
@@ -136,11 +139,15 @@ impl Plugin for CorePlugin {
         app.init_resource::<input::Viewport>()
             .init_resource::<input::PointerState>()
             .init_resource::<interaction::InteractionState>()
+            .init_resource::<text::TextMeasurer>()
+            .init_resource::<render::DrawList>()
             .add_systems(
                 ZenithSchedule::Main,
                 (
                     interaction::update_interaction.in_set(UiSet::Interaction),
+                    (text::measure_text, widgets::button_visuals).in_set(UiSet::Update),
                     layout::compute_layout.in_set(UiSet::Layout),
+                    render::extract_draw_list.in_set(UiSet::Render),
                     input::clear_pointer_edges.in_set(UiSet::Cleanup),
                 ),
             );

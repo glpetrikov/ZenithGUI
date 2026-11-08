@@ -22,18 +22,29 @@ pub mod input;
 pub mod interaction;
 pub mod layout;
 pub mod node;
+pub mod render;
 pub mod text;
+pub mod widgets;
 
 pub mod prelude {
     pub use crate::app::{CorePlugin, Plugin, UiSet, ZenithApp, ZenithSchedule};
     pub use crate::geometry::{Color, Rect, Vec2};
     pub use crate::input::{PointerButtonState, PointerState, Viewport};
-    pub use crate::interaction::{Clicked, Interaction, PointerEntered, PointerLeft};
-    pub use crate::layout::{
-        AlignItems, ContentSize, FlexDirection, JustifyContent, Style, UiRect, Val,
+    pub use crate::interaction::{
+        Clicked, DragEnded, Dragged, Interaction, PointerEntered, PointerLeft, PointerPressed,
     };
-    pub use crate::node::{BackgroundColor, ComputedLayout, Node, Visibility};
-    pub use crate::text::{Text, TextColor};
+    pub use crate::layout::{
+        AlignItems, ContentSize, FlexDirection, JustifyContent, Position, Style, UiRect, Val,
+    };
+    pub use crate::node::{
+        BackgroundColor, Border, ClipChildren, ComputedLayout, CornerRadius, Node, PassThrough,
+        Visibility,
+    };
+    pub use crate::render::{CustomDraw, DrawCommand, DrawList, RenderError, Renderer};
+    pub use crate::text::{
+        ApproxTextMeasure, DEFAULT_FONT_SIZE, Text, TextColor, TextMeasure, TextMeasurer,
+    };
+    pub use crate::widgets::{Button, ButtonColors, Label, Panel, button, label};
     pub use bevy_ecs::prelude::*;
 }
 
@@ -158,5 +169,125 @@ mod tests {
             *app.world.get::<Interaction>(root).unwrap(),
             Interaction::None
         );
+    }
+
+    #[test]
+    fn absolute_children_leave_the_flow_and_are_clipped_for_hit_testing() {
+        let mut app = ZenithApp::new();
+        let root = app
+            .world
+            .spawn((Node, ClipChildren, sized(100.0, 100.0)))
+            .id();
+        let flow = app
+            .world
+            .spawn((Node, sized(10.0, 10.0), ChildOf(root)))
+            .id();
+        let abs = app
+            .world
+            .spawn((
+                Node,
+                Style {
+                    position: Position::Absolute {
+                        left: 90.0,
+                        top: 5.0,
+                    },
+                    ..sized(50.0, 20.0)
+                },
+                ChildOf(root),
+            ))
+            .id();
+        app.update();
+
+        assert_eq!(rect_of(&app, flow), Rect::new(0.0, 0.0, 10.0, 10.0));
+        assert_eq!(rect_of(&app, abs), Rect::new(90.0, 5.0, 50.0, 20.0));
+
+        // Inside the absolute child but outside the parent's clip: no hit.
+        app.world.resource_mut::<PointerState>().position = Some(Vec2::new(120.0, 10.0));
+        app.update();
+        assert_eq!(
+            *app.world.get::<Interaction>(abs).unwrap(),
+            Interaction::None
+        );
+        // Inside both.
+        app.world.resource_mut::<PointerState>().position = Some(Vec2::new(95.0, 10.0));
+        app.update();
+        assert_eq!(
+            *app.world.get::<Interaction>(abs).unwrap(),
+            Interaction::Hovered
+        );
+    }
+
+    #[test]
+    fn dragging_emits_dragged_then_drag_ended_and_no_click() {
+        use std::sync::{Arc, Mutex};
+
+        let mut app = ZenithApp::new();
+        let a = app.world.spawn((Node, sized(50.0, 50.0))).id();
+        let log = Arc::new(Mutex::new(Vec::<String>::new()));
+        let l = log.clone();
+        app.add_observer(move |d: On<Dragged>| {
+            l.lock()
+                .unwrap()
+                .push(format!("drag {} {}", d.delta.x, d.entity == a))
+        });
+        let l = log.clone();
+        app.add_observer(move |_: On<DragEnded>| l.lock().unwrap().push("end".into()));
+        let l = log.clone();
+        app.add_observer(move |_: On<Clicked>| l.lock().unwrap().push("click".into()));
+
+        app.update();
+        {
+            let mut p = app.world.resource_mut::<PointerState>();
+            p.position = Some(Vec2::new(5.0, 5.0));
+            p.set_button(PointerButtonState::Pressed);
+        }
+        app.update();
+        app.world.resource_mut::<PointerState>().position = Some(Vec2::new(15.0, 5.0));
+        app.update();
+        app.world.resource_mut::<PointerState>().position = Some(Vec2::new(20.0, 5.0));
+        app.update();
+        app.world
+            .resource_mut::<PointerState>()
+            .set_button(PointerButtonState::Released);
+        app.update();
+
+        assert_eq!(*log.lock().unwrap(), ["drag 10 true", "drag 5 true", "end"]);
+    }
+
+    #[test]
+    fn draw_list_is_paint_ordered_with_clip_and_custom_draw() {
+        let mut app = ZenithApp::new();
+        let root = app
+            .world
+            .spawn((
+                Node,
+                ClipChildren,
+                BackgroundColor(Color::BLACK),
+                CustomDraw(vec![DrawCommand::Line {
+                    a: Vec2::ZERO,
+                    b: Vec2::new(1.0, 1.0),
+                    width: 1.0,
+                    color: Color::WHITE,
+                }]),
+            ))
+            .id();
+        app.world.spawn((button("OK"), ChildOf(root)));
+        app.update();
+
+        let kinds: Vec<&str> = app
+            .world
+            .resource::<DrawList>()
+            .commands
+            .iter()
+            .map(|c| match c {
+                DrawCommand::Rect { .. } => "rect",
+                DrawCommand::Text { .. } => "text",
+                DrawCommand::Line { .. } => "line",
+                DrawCommand::PushClip(_) => "push",
+                DrawCommand::PopClip => "pop",
+                DrawCommand::Bezier { .. } => "bezier",
+            })
+            .collect();
+        assert_eq!(kinds, ["rect", "push", "line", "rect", "text", "pop"]);
     }
 }

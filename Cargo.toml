@@ -3,6 +3,7 @@ members = [
     "zenith-gui-core",
     "zenith-gui-wgpu",
     "zenith-gui-widgets",
+    "zenith-gui-app",
 ]
 resolver = "2"
 
@@ -14,6 +15,13 @@ edition = "2024"
 
 [workspace.dependencies]
 bevy_ecs = { version = "0.20", default-features = false, features = ["std"] }
+wgpu = "30"
+glyphon = "0.12"
+winit = "0.30"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+png = "0.18"
 zenith-gui-core = { path = "zenith-gui-core" }
 zenith-gui-widgets = { path = "zenith-gui-widgets" }
 zenith-gui-wgpu = { path = "zenith-gui-wgpu" }
+zenith-gui-app = { path = "zenith-gui-app" }
