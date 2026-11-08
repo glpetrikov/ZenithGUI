@@ -8,3 +8,5 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
+bevy_ecs.workspace = true
+zenith-gui-core.workspace = true

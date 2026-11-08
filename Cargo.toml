@@ -11,3 +11,9 @@ authors = ["Gleb Petrikov"]
 repository = "https://github.com/glpetrikov/ZenithGUI"
 license = "MIT OR Apache-2.0 OR BlueOak-1.0.0"
 edition = "2024"
+
+[workspace.dependencies]
+bevy_ecs = { version = "0.20", default-features = false, features = ["std"] }
+zenith-gui-core = { path = "zenith-gui-core" }
+zenith-gui-widgets = { path = "zenith-gui-widgets" }
+zenith-gui-wgpu = { path = "zenith-gui-wgpu" }
